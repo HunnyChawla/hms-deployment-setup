@@ -1,0 +1,9 @@
+# Environment files with secrets
+.env
+
+# Empty placeholder directories
+hms-platform-backend/
+hospital-ui/
+
+# OS files
+.DS_Store
