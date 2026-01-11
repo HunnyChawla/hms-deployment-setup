@@ -7,3 +7,4 @@ hospital-ui/
 
 # OS files
 .DS_Store
+pi-hole/etc-pihole/
