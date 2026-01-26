@@ -25,12 +25,12 @@ services:
 
   # HMS Platform Backend (FastAPI)
   hms-backend:
-    image: technesian/hms-platform-backend:${BACKEND_IMAGE_TAG:-latest}
+    image: technesian/${BACKEND_CONTAINER_NAME:-hms-platform-backend}:${BACKEND_IMAGE_TAG:-latest}
     pull_policy: always
     build:
       context: ../hms-platform-backend
       dockerfile: Dockerfile
-    container_name: ${BACKEND_CONTAINER_NAME:-hms-backend}
+    container_name: ${BACKEND_CONTAINER_NAME:-hms-platform-backend}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hms_db}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars-please}
@@ -42,7 +42,7 @@ services:
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-5}
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-8153}:8000"
     volumes:
       - ./data/uploads:/app/uploads
       - ./data/logs:/app/logs
@@ -61,7 +61,7 @@ services:
 
   # Hospital UI (Next.js Frontend)
   hospital-ui:
-    image: technesian/hms-ui:${FRONTEND_IMAGE_TAG:-latest}
+    image: technesian/${FRONTEND_CONTAINER_NAME:-hospital-ui}:${FRONTEND_IMAGE_TAG:-latest}
     pull_policy: always
     build:
       context: ../hospital-ui
@@ -71,8 +71,12 @@ services:
         NEXT_PUBLIC_DOMAIN_URL: ${NEXT_PUBLIC_DOMAIN_URL:-}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: ${FRONTEND_CONTAINER_NAME:-hospital-ui}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_DOMAIN_URL: ${NEXT_PUBLIC_DOMAIN_URL:-}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-8154}:80"
     depends_on:
       hms-backend:
         condition: service_healthy
