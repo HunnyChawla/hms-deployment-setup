@@ -33,7 +33,7 @@ function Show-MainMenu {
     Write-Host "Full Setup (First Time)"
     Write-Host "      - Initialize directories" -ForegroundColor DarkGray
     Write-Host "      - Pull images & start services" -ForegroundColor DarkGray
-    Write-Host "      - Setup auto-start service (NSSM)" -ForegroundColor DarkGray
+    Write-Host "      - Setup auto-start (Task Scheduler)" -ForegroundColor DarkGray
     Write-Host "      - Configure daily backups (2 AM)" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  [2] " -NoNewline -ForegroundColor Yellow
@@ -51,8 +51,8 @@ function Show-MainMenu {
     Write-Host "Docker Cleanup"
     Write-Host ""
     Write-Host "  [6] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Service Management (NSSM)"
-    Write-Host "      - Install/Start/Stop/Remove" -ForegroundColor DarkGray
+    Write-Host "Auto-Start Management (Task Scheduler)"
+    Write-Host "      - Setup/Remove auto-start on boot" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  [7] " -NoNewline -ForegroundColor Yellow
     Write-Host "View Status & Logs"
@@ -65,25 +65,27 @@ function Show-MainMenu {
     Write-Host ""
 }
 
-function Show-ServiceMenu {
+function Show-AutoStartMenu {
     Clear-Host
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Cyan
-    Write-Host "   NSSM Service Management" -ForegroundColor Cyan
+    Write-Host "   Auto-Start Management (Task Scheduler)" -ForegroundColor Cyan
     Write-Host "  ========================================" -ForegroundColor Cyan
     Write-Host ""
+    Write-Host "  This configures HMS containers to start" -ForegroundColor DarkGray
+    Write-Host "  automatically when Windows boots." -ForegroundColor DarkGray
+    Write-Host ""
     Write-Host "  [1] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Install Service"
+    Write-Host "Setup Auto-Start Task"
+    Write-Host "      - Creates 'HMS-DockerAutoStart' scheduled task" -ForegroundColor DarkGray
+    Write-Host "      - Runs on system startup (60s delay)" -ForegroundColor DarkGray
+    Write-Host "      - Pulls latest images (pull_policy: always)" -ForegroundColor DarkGray
+    Write-Host ""
     Write-Host "  [2] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Start Service"
+    Write-Host "Remove Auto-Start Task"
+    Write-Host ""
     Write-Host "  [3] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Stop Service"
-    Write-Host "  [4] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Restart Service"
-    Write-Host "  [5] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Remove Service"
-    Write-Host "  [6] " -NoNewline -ForegroundColor Yellow
-    Write-Host "Check Status"
+    Write-Host "Check Task Status"
     Write-Host ""
     Write-Host "  [0] " -NoNewline -ForegroundColor Red
     Write-Host "Back to Main Menu"
@@ -132,13 +134,13 @@ function Invoke-FullSetup {
     Write-Host "`n  [Step 2/4] Deploying services..." -ForegroundColor Yellow
     & (Join-Path $ScriptsDir "deploy.ps1")
 
-    # Step 3: Install NSSM service (optional)
-    Write-Host "`n  [Step 3/4] NSSM Service Setup" -ForegroundColor Yellow
-    $installNssm = Read-Host "  Install auto-start service? (y/n)"
-    if ($installNssm -eq 'y') {
-        & (Join-Path $ScriptsDir "install-service.ps1") -Action install
+    # Step 3: Setup auto-start via Task Scheduler (optional)
+    Write-Host "`n  [Step 3/4] Auto-Start Setup (Task Scheduler)" -ForegroundColor Yellow
+    $setupAutoStart = Read-Host "  Setup auto-start on boot? (y/n)"
+    if ($setupAutoStart -eq 'y') {
+        & (Join-Path $ScriptsDir "setup-autostart-schedule.ps1")
     } else {
-        Write-Host "  Skipped NSSM installation." -ForegroundColor DarkGray
+        Write-Host "  Skipped auto-start setup." -ForegroundColor DarkGray
     }
 
     # Step 4: Setup backup schedule (optional)
@@ -204,34 +206,41 @@ function Invoke-CleanupMenu {
     } while ($true)
 }
 
-function Invoke-ServiceMenu {
+function Invoke-AutoStartMenu {
     do {
-        Show-ServiceMenu
-        $choice = Read-Host "  Enter choice [0-6]"
+        Show-AutoStartMenu
+        $choice = Read-Host "  Enter choice [0-3]"
 
         switch ($choice) {
             "1" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action install
+                & (Join-Path $ScriptsDir "setup-autostart-schedule.ps1")
                 Pause-ForUser
             }
             "2" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action start
+                & (Join-Path $ScriptsDir "setup-autostart-schedule.ps1") -Remove
                 Pause-ForUser
             }
             "3" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action stop
-                Pause-ForUser
-            }
-            "4" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action restart
-                Pause-ForUser
-            }
-            "5" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action remove
-                Pause-ForUser
-            }
-            "6" {
-                & (Join-Path $ScriptsDir "install-service.ps1") -Action status
+                Write-Host ""
+                Write-Host "  Checking scheduled task status..." -ForegroundColor Yellow
+                Write-Host ""
+                $task = Get-ScheduledTask -TaskName "HMS-DockerAutoStart" -ErrorAction SilentlyContinue
+                if ($task) {
+                    Write-Host "  Task Name:   $($task.TaskName)" -ForegroundColor Green
+                    Write-Host "  State:       $($task.State)" -ForegroundColor Cyan
+                    Write-Host "  Description: $($task.Description)" -ForegroundColor DarkGray
+                    Write-Host ""
+                    $taskInfo = Get-ScheduledTaskInfo -TaskName "HMS-DockerAutoStart" -ErrorAction SilentlyContinue
+                    if ($taskInfo) {
+                        Write-Host "  Last Run:    $($taskInfo.LastRunTime)" -ForegroundColor DarkGray
+                        Write-Host "  Last Result: $($taskInfo.LastTaskResult)" -ForegroundColor DarkGray
+                        Write-Host "  Next Run:    $($taskInfo.NextRunTime)" -ForegroundColor DarkGray
+                    }
+                } else {
+                    Write-Host "  Auto-start task is NOT configured." -ForegroundColor Yellow
+                    Write-Host "  Use option [1] to set it up." -ForegroundColor DarkGray
+                }
+                Write-Host ""
                 Pause-ForUser
             }
             "0" { return }
@@ -453,7 +462,7 @@ do {
         "3" { Invoke-Backup }
         "4" { Invoke-Restore }
         "5" { Invoke-CleanupMenu }
-        "6" { Invoke-ServiceMenu }
+        "6" { Invoke-AutoStartMenu }
         "7" { Show-Status }
         "8" { Show-StopMenu }
         "0" {

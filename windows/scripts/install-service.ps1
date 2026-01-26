@@ -16,16 +16,26 @@ param(
     [string]$Action
 )
 
+# ------------------------------------------------------------------
 # Source common functions
+# ------------------------------------------------------------------
 . (Join-Path $PSScriptRoot "common.ps1")
 
-$ServiceName = "HMSDocker"
-$ProjectRoot = Get-ProjectRoot
+# ------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------
+$ServiceName   = "HMSDocker"
+$ProjectRoot  = Get-ProjectRoot
 $DeployScript = Join-Path $PSScriptRoot "deploy.ps1"
-$LogDir = Join-Path $ProjectRoot "data\logs"
-$NssmExe = Get-NssmPath
+$LogDir       = Join-Path $ProjectRoot "data\logs"
+$NssmExe      = Get-NssmPath
 
+$PowerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$AppDir        = (Resolve-Path $PSScriptRoot).Path
+
+# ------------------------------------------------------------------
 # Banner
+# ------------------------------------------------------------------
 Write-Host ""
 Write-Host "  ========================================" -ForegroundColor Cyan
 Write-Host "   HMS Service Management (NSSM)" -ForegroundColor Cyan
@@ -35,92 +45,76 @@ Write-Host "  Service Name: $ServiceName" -ForegroundColor DarkGray
 Write-Host "  Action:       $Action" -ForegroundColor DarkGray
 Write-Host ""
 
-# Check NSSM is installed
+# ------------------------------------------------------------------
+# Pre-flight checks
+# ------------------------------------------------------------------
 if (-not (Test-NssmInstalled)) {
     Write-Host (Get-NssmInstallInstructions) -ForegroundColor Yellow
     exit 1
 }
 
-# Check for Admin rights for install/remove
 if ($Action -in @("install", "remove")) {
     if (-not (Test-IsAdmin)) {
-        Write-Log "This action requires Administrator privileges." -Level ERROR
-        Write-Host ""
-        Write-Host "  Please run as Administrator:" -ForegroundColor Yellow
-        Write-Host "    1. Right-click on hms-setup.bat" -ForegroundColor DarkGray
-        Write-Host "    2. Select 'Run as administrator'" -ForegroundColor DarkGray
-        Write-Host ""
+        Write-Log "Administrator privileges required." -Level ERROR
         exit 1
     }
 }
 
+if ($Action -eq "install" -and -not (Test-Path $DeployScript)) {
+    Write-Log "deploy.ps1 not found at: $DeployScript" -Level ERROR
+    exit 1
+}
+
+# ------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------
+
 function Install-HmsService {
     Write-Step "Installing $ServiceName service"
 
-    # Check if already installed
     $existingStatus = & $NssmExe status $ServiceName 2>&1
     if ($existingStatus -notmatch "Can't open service") {
-        Write-Log "Service already exists. Remove it first or use 'restart'." -Level WARN
+        Write-Log "Service already exists. Use 'remove' or 'restart'." -Level WARN
         return
     }
 
-    # Ensure log directory exists
     if (-not (Test-Path $LogDir)) {
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     }
 
-    # Install service pointing to PowerShell running deploy.ps1 with NoPull flag
-    # (We don't want to pull on every startup, just restart containers)
-    Write-SubStep "Registering service..."
-    & $NssmExe install $ServiceName "powershell.exe"
+    Write-SubStep "Registering service (non-interactive)..."
+    & $NssmExe install $ServiceName `
+        $PowerShellExe `
+        "-ExecutionPolicy Bypass -NoProfile -File `"$DeployScript`" -NoPull"
 
-    Write-SubStep "Configuring service parameters..."
-    & $NssmExe set $ServiceName AppParameters "-ExecutionPolicy Bypass -NoProfile -File `"$DeployScript`" -NoPull"
-    & $NssmExe set $ServiceName AppDirectory $PSScriptRoot
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "NSSM install failed" -Level ERROR
+        exit 1
+    }
 
-    Write-SubStep "Setting service properties..."
+    Write-SubStep "Configuring service properties..."
+    & $NssmExe set $ServiceName AppDirectory $AppDir
     & $NssmExe set $ServiceName DisplayName "HMS Docker Deployment Service"
     & $NssmExe set $ServiceName Description "Starts HMS Docker containers on system boot"
     & $NssmExe set $ServiceName Start SERVICE_AUTO_START
     & $NssmExe set $ServiceName ObjectName LocalSystem
 
-    # Exit/restart behavior
     & $NssmExe set $ServiceName AppExit Default Exit
     & $NssmExe set $ServiceName AppRestartDelay 60000
 
-    # Logging
     Write-SubStep "Configuring logging..."
-    $stdoutLog = Join-Path $LogDir "service-stdout.log"
-    $stderrLog = Join-Path $LogDir "service-stderr.log"
-    & $NssmExe set $ServiceName AppStdout $stdoutLog
-    & $NssmExe set $ServiceName AppStderr $stderrLog
+    & $NssmExe set $ServiceName AppStdout (Join-Path $LogDir "service-stdout.log")
+    & $NssmExe set $ServiceName AppStderr (Join-Path $LogDir "service-stderr.log")
     & $NssmExe set $ServiceName AppRotateFiles 1
     & $NssmExe set $ServiceName AppRotateBytes 5242880
 
-    Write-Host ""
     Write-Log "Service installed successfully" -Level SUCCESS
-    Write-Host ""
-    Write-Host "  The service is configured to:" -ForegroundColor Cyan
-    Write-Host "    - Start automatically on system boot"
-    Write-Host "    - Restart HMS containers (without pulling new images)"
-    Write-Host "    - Log output to: $LogDir"
-    Write-Host ""
-    Write-Host "  To start the service now, run:" -ForegroundColor Yellow
-    Write-Host "    .\install-service.ps1 -Action start" -ForegroundColor DarkGray
-    Write-Host ""
 }
 
 function Remove-HmsService {
     Write-Step "Removing $ServiceName service"
-
-    # Stop first if running
-    Write-SubStep "Stopping service if running..."
     & $NssmExe stop $ServiceName 2>$null
-
-    Write-SubStep "Removing service..."
     & $NssmExe remove $ServiceName confirm
-
-    Write-Host ""
     Write-Log "Service removed" -Level SUCCESS
 }
 
@@ -130,54 +124,25 @@ function Get-HmsServiceStatus {
     $status = & $NssmExe status $ServiceName 2>&1
 
     if ($status -match "Can't open service") {
-        Write-Host ""
-        Write-Host "  Status: " -NoNewline
-        Write-Host "NOT INSTALLED" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "  To install, run:" -ForegroundColor DarkGray
-        Write-Host "    .\install-service.ps1 -Action install (as Administrator)" -ForegroundColor DarkGray
+        Write-Host "  Status: NOT INSTALLED" -ForegroundColor Yellow
     } elseif ($status -match "SERVICE_RUNNING") {
-        Write-Host ""
-        Write-Host "  Status: " -NoNewline
-        Write-Host "RUNNING" -ForegroundColor Green
+        Write-Host "  Status: RUNNING" -ForegroundColor Green
     } elseif ($status -match "SERVICE_STOPPED") {
-        Write-Host ""
-        Write-Host "  Status: " -NoNewline
-        Write-Host "STOPPED" -ForegroundColor Yellow
+        Write-Host "  Status: STOPPED" -ForegroundColor Yellow
     } else {
-        Write-Host ""
         Write-Host "  Status: $status" -ForegroundColor DarkGray
     }
     Write-Host ""
 }
 
-# Execute action
+# ------------------------------------------------------------------
+# Action dispatcher
+# ------------------------------------------------------------------
 switch ($Action) {
-    "install" {
-        Install-HmsService
-    }
-    "start" {
-        Write-Step "Starting $ServiceName service"
-        & $NssmExe start $ServiceName
-        Start-Sleep -Seconds 2
-        Get-HmsServiceStatus
-    }
-    "stop" {
-        Write-Step "Stopping $ServiceName service"
-        & $NssmExe stop $ServiceName
-        Start-Sleep -Seconds 2
-        Get-HmsServiceStatus
-    }
-    "restart" {
-        Write-Step "Restarting $ServiceName service"
-        & $NssmExe restart $ServiceName
-        Start-Sleep -Seconds 2
-        Get-HmsServiceStatus
-    }
-    "remove" {
-        Remove-HmsService
-    }
-    "status" {
-        Get-HmsServiceStatus
-    }
+    "install"  { Install-HmsService }
+    "start"    { & $NssmExe start $ServiceName;  Start-Sleep 2; Get-HmsServiceStatus }
+    "stop"     { & $NssmExe stop  $ServiceName;  Start-Sleep 2; Get-HmsServiceStatus }
+    "restart"  { & $NssmExe restart $ServiceName; Start-Sleep 2; Get-HmsServiceStatus }
+    "remove"   { Remove-HmsService }
+    "status"   { Get-HmsServiceStatus }
 }

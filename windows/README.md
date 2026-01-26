@@ -23,7 +23,7 @@ Complete guide for deploying and managing the Hospital Management System on Wind
    - Included with Windows 10/11
    - Check version: `$PSVersionTable.PSVersion`
 
-**Note:** NSSM (for auto-start service) is bundled in `windows/dependencies/nssm/` - no separate installation required.
+**Note:** Auto-start is configured using Windows Task Scheduler - no additional software required.
 
 ## Quick Start
 
@@ -81,8 +81,9 @@ Select an option:
   [3] Backup Database Now
   [4] Restore Database
   [5] Docker Cleanup
-  [6] Service Management (NSSM)
+  [6] Auto-Start Management (Task Scheduler)
   [7] View Status & Logs
+  [8] Stop/Remove Containers
   [0] Exit
 ```
 
@@ -153,14 +154,11 @@ For advanced users, scripts can be run directly:
 .\windows\scripts\restore-database.ps1 -BackupFile "path\to.sql"  # Specific file
 ```
 
-### NSSM Service Management
+### Auto-Start on Boot (Task Scheduler)
 ```powershell
 # Requires Administrator privileges
-.\windows\scripts\install-service.ps1 -Action install   # Install service
-.\windows\scripts\install-service.ps1 -Action start     # Start service
-.\windows\scripts\install-service.ps1 -Action stop      # Stop service
-.\windows\scripts\install-service.ps1 -Action status    # Check status
-.\windows\scripts\install-service.ps1 -Action remove    # Remove service
+.\windows\scripts\setup-autostart-schedule.ps1          # Setup auto-start task
+.\windows\scripts\setup-autostart-schedule.ps1 -Remove  # Remove auto-start task
 ```
 
 ### Scheduled Backups
@@ -183,8 +181,7 @@ hms-deployment-setup/
 │   ├── orchestrator.ps1    # Main menu
 │   ├── README.md           # This file
 │   ├── scripts/            # PowerShell scripts
-│   └── dependencies/       # Bundled tools
-│       └── nssm/           # NSSM for Windows services
+│   └── dependencies/       # Bundled tools (optional)
 ├── data/                   # Persistent data (auto-created)
 │   ├── postgres/           # Database files
 │   ├── uploads/            # User uploads
@@ -194,26 +191,29 @@ hms-deployment-setup/
 
 ## Auto-Start on Windows Boot
 
-### Option 1: NSSM Service (Recommended)
+### Using the Orchestrator (Recommended)
 
 1. Run `hms-setup.bat` as Administrator
-2. Select **[6] Service Management**
-3. Select **[1] Install Service**
-4. Select **[2] Start Service**
+2. Select **[6] Auto-Start Management**
+3. Select **[1] Setup Auto-Start Task**
 
-The service will:
-- Start automatically on Windows boot
-- Restart HMS containers (without pulling new images)
-- Log output to `data\logs\service-*.log`
+The scheduled task will:
+- Start automatically when Windows boots (60 second delay)
+- Pull the latest Docker images (`pull_policy: always`)
+- Start all HMS containers
+- Retry up to 3 times if failed
 
-### Option 2: Task Scheduler (Manual)
-
+To verify:
 1. Open Task Scheduler (`taskschd.msc`)
-2. Create Basic Task
-3. Trigger: "When the computer starts"
-4. Action: Start a program
-5. Program: `powershell.exe`
-6. Arguments: `-ExecutionPolicy Bypass -File "C:\path\to\windows\scripts\deploy.ps1" -NoPull`
+2. Look for `HMS-DockerAutoStart` task
+
+### Manual Command
+
+```powershell
+# Run as Administrator
+.\windows\scripts\setup-autostart-schedule.ps1          # Setup
+.\windows\scripts\setup-autostart-schedule.ps1 -Remove  # Remove
+```
 
 ## Backup and Restore
 
@@ -221,7 +221,6 @@ The service will:
 
 1. Run `hms-setup.bat` as Administrator
 2. Select **[1] Full Setup** and answer 'y' to backup setup
-   OR select **[6] Service Management** then setup backup schedule
 
 Backups are stored in `backups/` with format: `hms_backup_YYYY-MM-DD_HH-mm-ss.sql`
 
@@ -311,13 +310,15 @@ Run as Administrator:
 icacls ".\data" /grant Everyone:F /T
 ```
 
-### NSSM Not Found
+### Scheduled Task Not Working
 
-NSSM is bundled with this project. If you see this error:
+If auto-start fails:
 
-1. Verify the file exists: `windows\dependencies\nssm\nssm.exe`
-2. If missing, re-clone the repository or download NSSM from https://nssm.cc/download
-3. Place `nssm.exe` in `windows\dependencies\nssm\`
+1. Open Task Scheduler (`taskschd.msc`)
+2. Find `HMS-DockerAutoStart` task
+3. Check Last Run Result for errors
+4. Right-click and select "Run" to test manually
+5. Check logs in `data\logs\` directory
 
 ### Clean Restart
 
