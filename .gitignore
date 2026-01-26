@@ -1,10 +1,28 @@
 # Environment files with secrets
 .env
 
+# Data directories (bind mounts)
+data/
+
+# Backup files
+backups/*.sql
+backups/*.sql.gz
+!backups/.gitkeep
+
+# Linux placeholder (keep .gitkeep only)
+linux/
+!linux/.gitkeep
+
 # Empty placeholder directories
 hms-platform-backend/
 hospital-ui/
 
 # OS files
 .DS_Store
+Thumbs.db
+
+# Pi-hole data
 pi-hole/etc-pihole/
+
+# Log files
+*.log

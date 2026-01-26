@@ -3,12 +3,13 @@ version: '3.8'
 services:
   # PostgreSQL Database
   db:
-    image: postgres:15-alpine
-    container_name: hms-postgres
+    image: postgres:${POSTGRES_VERSION:-15-alpine}
+    container_name: ${POSTGRES_CONTAINER_NAME:-hms-postgres}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-hms_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${POSTGRES_PORT:-5444}:5432"
     volumes:
@@ -24,11 +25,12 @@ services:
 
   # HMS Platform Backend (FastAPI)
   hms-backend:
-    image: technesian/hms-platform-backend:latest
+    image: technesian/${BACKEND_CONTAINER_NAME:-hms-platform-backend}:${BACKEND_IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ../hms-platform-backend
       dockerfile: Dockerfile
-    container_name: hms-backend
+    container_name: ${BACKEND_CONTAINER_NAME:-hms-platform-backend}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hms_db}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars-please}
@@ -40,10 +42,10 @@ services:
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-5}
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-8153}:8000"
     volumes:
-      - uploads_data:/app/uploads
-      - logs_data:/app/logs
+      - ./data/uploads:/app/uploads
+      - ./data/logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
@@ -59,7 +61,8 @@ services:
 
   # Hospital UI (Next.js Frontend)
   hospital-ui:
-    image: technesian/hms-ui:latest
+    image: technesian/${FRONTEND_CONTAINER_NAME:-hospital-ui}:${FRONTEND_IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ../hospital-ui
       dockerfile: Dockerfile
@@ -67,9 +70,13 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
         NEXT_PUBLIC_DOMAIN_URL: ${NEXT_PUBLIC_DOMAIN_URL:-}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
-    container_name: hospital-ui
+    container_name: ${FRONTEND_CONTAINER_NAME:-hospital-ui}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_DOMAIN_URL: ${NEXT_PUBLIC_DOMAIN_URL:-}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-8154}:80"
     depends_on:
       hms-backend:
         condition: service_healthy
@@ -77,14 +84,10 @@ services:
       - hms-network
     restart: unless-stopped
 
-volumes:
-  postgres_data:
-    driver: local
-  uploads_data:
-    driver: local
-  logs_data:
-    driver: local
-
 networks:
   hms-network:
     driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
