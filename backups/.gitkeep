@@ -1,0 +1,3 @@
+# Database backups directory
+# Backups are created by scripts/backup-database.ps1
+# Files are automatically cleaned based on BACKUP_RETENTION_DAYS
