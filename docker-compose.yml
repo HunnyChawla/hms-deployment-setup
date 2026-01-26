@@ -4,16 +4,16 @@ services:
   # PostgreSQL Database
   db:
     image: postgres:${POSTGRES_VERSION:-15-alpine}
-    pull_policy: always
     container_name: ${POSTGRES_CONTAINER_NAME:-hms-postgres}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-hms_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${POSTGRES_PORT:-5444}:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hms_db}"]
       interval: 10s
@@ -83,3 +83,7 @@ services:
 networks:
   hms-network:
     driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
