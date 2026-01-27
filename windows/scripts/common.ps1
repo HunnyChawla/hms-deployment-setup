@@ -489,3 +489,193 @@ function Show-ContainerLogs {
         docker logs $ContainerName --tail $TailLines
     }
 }
+
+# ============================================
+# Container Tools Utilities
+# ============================================
+
+function Test-ContainerExists {
+    <#
+    .SYNOPSIS
+        Checks if a container exists (running or stopped)
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName
+    )
+
+    $exists = docker ps -a --format "{{.Names}}" 2>$null | Where-Object { $_ -eq $ContainerName }
+    return [bool]$exists
+}
+
+function Test-ContainerRunning {
+    <#
+    .SYNOPSIS
+        Checks if a container is currently running
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName
+    )
+
+    $status = Get-ContainerStatus -ContainerName $ContainerName
+    return ($status -eq "running")
+}
+
+function Get-ContainerImageName {
+    <#
+    .SYNOPSIS
+        Gets the image name for a container
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName
+    )
+
+    try {
+        $image = docker inspect --format='{{.Config.Image}}' $ContainerName 2>$null
+        return $image
+    } catch {
+        return $null
+    }
+}
+
+function Select-Container {
+    <#
+    .SYNOPSIS
+        Interactive menu to select an HMS container
+    .OUTPUTS
+        String - The selected container name, or $null if cancelled
+    #>
+    param(
+        [switch]$IncludeAll
+    )
+
+    $containers = Get-HmsContainerNames
+
+    Write-Host ""
+    Write-Host "  Select container:" -ForegroundColor Yellow
+    Write-Host "  [1] $($containers.Postgres) (PostgreSQL)"
+    Write-Host "  [2] $($containers.Backend) (Backend/FastAPI)"
+    Write-Host "  [3] $($containers.Frontend) (Frontend/Next.js)"
+    if ($IncludeAll) {
+        Write-Host "  [4] All containers"
+    }
+    Write-Host "  [0] Cancel"
+    Write-Host ""
+
+    $choice = Read-Host "  Enter choice"
+
+    switch ($choice) {
+        "1" { return $containers.Postgres }
+        "2" { return $containers.Backend }
+        "3" { return $containers.Frontend }
+        "4" { if ($IncludeAll) { return "all" } }
+        "0" { return $null }
+        default { return $null }
+    }
+}
+
+function Get-ServiceNameFromContainer {
+    <#
+    .SYNOPSIS
+        Gets the docker-compose service name from container name
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName
+    )
+
+    $containers = Get-HmsContainerNames
+
+    switch ($ContainerName) {
+        $containers.Postgres { return "db" }
+        $containers.Backend { return "hms-backend" }
+        $containers.Frontend { return "hospital-ui" }
+        default { return $null }
+    }
+}
+
+function Confirm-DestructiveAction {
+    <#
+    .SYNOPSIS
+        Prompts user to confirm a destructive action
+    .OUTPUTS
+        Boolean - True if user confirmed
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ActionDescription,
+
+        [string]$ConfirmationWord = "yes"
+    )
+
+    Write-Host ""
+    Write-Host "  ========================================" -ForegroundColor Red
+    Write-Host "   WARNING: Destructive Action" -ForegroundColor Red
+    Write-Host "  ========================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  $ActionDescription" -ForegroundColor Yellow
+    Write-Host ""
+
+    $confirm = Read-Host "  Type '$ConfirmationWord' to proceed"
+    return ($confirm -eq $ConfirmationWord)
+}
+
+function Get-TempEditPath {
+    <#
+    .SYNOPSIS
+        Returns the temp directory for container file editing
+    #>
+    $tempBase = Join-Path $env:TEMP "hms-container-edit"
+    if (-not (Test-Path $tempBase)) {
+        New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
+    }
+    return $tempBase
+}
+
+function Invoke-DockerExec {
+    <#
+    .SYNOPSIS
+        Executes a command in a container with proper error handling
+    .OUTPUTS
+        PSObject with Success (bool) and Output (string)
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+
+        [switch]$Interactive
+    )
+
+    if (-not (Test-ContainerRunning -ContainerName $ContainerName)) {
+        return @{
+            Success = $false
+            Output = "Container '$ContainerName' is not running"
+        }
+    }
+
+    try {
+        if ($Interactive) {
+            docker exec -it $ContainerName $Command
+            return @{
+                Success = ($LASTEXITCODE -eq 0)
+                Output = ""
+            }
+        } else {
+            $output = docker exec $ContainerName sh -c $Command 2>&1
+            return @{
+                Success = ($LASTEXITCODE -eq 0)
+                Output = $output
+            }
+        }
+    } catch {
+        return @{
+            Success = $false
+            Output = $_.Exception.Message
+        }
+    }
+}

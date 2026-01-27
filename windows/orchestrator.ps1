@@ -60,6 +60,10 @@ function Show-MainMenu {
     Write-Host "  [8] " -NoNewline -ForegroundColor Yellow
     Write-Host "Stop/Remove Containers"
     Write-Host ""
+    Write-Host "  [9] " -NoNewline -ForegroundColor Yellow
+    Write-Host "Container Tools (Advanced)"
+    Write-Host "      - File management, scripts, debugging" -ForegroundColor DarkGray
+    Write-Host ""
     Write-Host "  [0] " -NoNewline -ForegroundColor Red
     Write-Host "Exit"
     Write-Host ""
@@ -426,6 +430,84 @@ function Pause-ForUser {
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
+function Show-ContainerToolsMenu {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ========================================" -ForegroundColor Cyan
+    Write-Host "   Container Tools" -ForegroundColor Cyan
+    Write-Host "  ========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  File Management:" -ForegroundColor Yellow
+    Write-Host "  [1] Copy files to container"
+    Write-Host "  [2] Delete files from container"
+    Write-Host "  [3] Edit file in container"
+    Write-Host "  [4] Browse container files"
+    Write-Host ""
+    Write-Host "  Script Execution:" -ForegroundColor Yellow
+    Write-Host "  [5] Run SQL script in PostgreSQL"
+    Write-Host "  [6] Run Python script in Backend"
+    Write-Host "  [7] Run Alembic migrations"
+    Write-Host ""
+    Write-Host "  Debugging:" -ForegroundColor Yellow
+    Write-Host "  [8] Debug failing container"
+    Write-Host "  [9] Environment diagnostics"
+    Write-Host ""
+    Write-Host "  [0] " -NoNewline -ForegroundColor Red
+    Write-Host "Back to main menu"
+    Write-Host ""
+}
+
+function Invoke-ContainerToolsMenu {
+    do {
+        Show-ContainerToolsMenu
+        $choice = Read-Host "  Enter choice [0-9]"
+
+        switch ($choice) {
+            "1" {
+                & (Join-Path $ScriptsDir "container-files.ps1") -Action Copy
+                Pause-ForUser
+            }
+            "2" {
+                & (Join-Path $ScriptsDir "container-files.ps1") -Action Delete
+                Pause-ForUser
+            }
+            "3" {
+                & (Join-Path $ScriptsDir "container-files.ps1") -Action Edit
+                Pause-ForUser
+            }
+            "4" {
+                & (Join-Path $ScriptsDir "container-files.ps1") -Action Browse
+                Pause-ForUser
+            }
+            "5" {
+                & (Join-Path $ScriptsDir "container-scripts.ps1") -Action SQL
+                Pause-ForUser
+            }
+            "6" {
+                & (Join-Path $ScriptsDir "container-scripts.ps1") -Action Python
+                Pause-ForUser
+            }
+            "7" {
+                & (Join-Path $ScriptsDir "container-scripts.ps1") -Action Alembic
+                Pause-ForUser
+            }
+            "8" {
+                & (Join-Path $ScriptsDir "container-debug.ps1")
+                Pause-ForUser
+            }
+            "9" {
+                & (Join-Path $ScriptsDir "diagnostics.ps1")
+                Pause-ForUser
+            }
+            "0" { return }
+            default {
+                Write-Host "  Invalid choice. Please try again." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    } while ($true)
+}
+
 # Check Docker at startup
 Write-Host ""
 Write-Host "  Checking Docker status..." -ForegroundColor DarkGray
@@ -454,7 +536,7 @@ do {
     Show-Banner
     Show-MainMenu
 
-    $choice = Read-Host "  Enter choice [0-8]"
+    $choice = Read-Host "  Enter choice [0-9]"
 
     switch ($choice) {
         "1" { Invoke-FullSetup }
@@ -465,6 +547,7 @@ do {
         "6" { Invoke-AutoStartMenu }
         "7" { Show-Status }
         "8" { Show-StopMenu }
+        "9" { Invoke-ContainerToolsMenu }
         "0" {
             Write-Host "`n  Goodbye!" -ForegroundColor Green
             exit 0
