@@ -18,6 +18,7 @@ param(
 
 # Source common functions
 . (Join-Path $PSScriptRoot "common.ps1")
+. (Join-Path $PSScriptRoot "file-browser.ps1")
 
 # ============================================
 # SQL Script Execution
@@ -156,7 +157,7 @@ function Show-SqlMenu {
     }
 
     Write-Host "  Options:" -ForegroundColor Yellow
-    Write-Host "  [1] Run SQL file from disk"
+    Write-Host "  [1] Run SQL file from disk (interactive browser)"
     Write-Host "  [2] Run SQL command directly"
     Write-Host "  [3] Open interactive psql session"
     Write-Host "  [0] Cancel"
@@ -167,12 +168,33 @@ function Show-SqlMenu {
     switch ($choice) {
         "1" {
             Write-Host ""
-            $scriptPath = Read-Host "  Enter path to SQL file"
-            if ($scriptPath) {
-                # Handle quoted paths
-                $scriptPath = $scriptPath.Trim('"', "'")
-                Invoke-SqlScript -ScriptPath $scriptPath
+            # Use interactive file selection
+            $scriptPath = Select-HostFile -Title "Select SQL Script" -Filter "SQL Files|*.sql"
+
+            if (-not $scriptPath) {
+                Write-Log "No file selected" -Level WARN
+                return
             }
+
+            # Validate the file operation
+            $validation = Test-FileOperation -Operation "Read" -SourcePath $scriptPath
+            if (-not $validation.IsValid) {
+                foreach ($err in $validation.Errors) {
+                    Write-Log $err -Level ERROR
+                }
+                return
+            }
+            foreach ($warn in $validation.Warnings) {
+                Write-Log $warn -Level WARN
+            }
+
+            # Show file preview
+            Write-Host ""
+            Show-FilePreview -FilePath $scriptPath -MaxLines 20
+            Write-Host ""
+
+            # Invoke the SQL script
+            Invoke-SqlScript -ScriptPath $scriptPath
         }
         "2" {
             Write-Host ""
@@ -323,7 +345,7 @@ function Show-PythonMenu {
     Write-Host ""
 
     Write-Host "  Options:" -ForegroundColor Yellow
-    Write-Host "  [1] Run Python file from disk"
+    Write-Host "  [1] Run Python file from disk (interactive browser)"
     Write-Host "  [2] Run Python command directly"
     Write-Host "  [3] Open interactive Python shell"
     Write-Host "  [0] Cancel"
@@ -334,14 +356,38 @@ function Show-PythonMenu {
     switch ($choice) {
         "1" {
             Write-Host ""
-            $scriptPath = Read-Host "  Enter path to Python file"
-            if ($scriptPath) {
-                $scriptPath = $scriptPath.Trim('"', "'")
-                Write-Host ""
-                $args = Read-Host "  Enter arguments (or press Enter for none)"
-                $argArray = if ($args) { $args -split " " } else { @() }
-                Invoke-PythonScript -ScriptPath $scriptPath -Arguments $argArray
+            # Use interactive file selection
+            $scriptPath = Select-HostFile -Title "Select Python Script" -Filter "Python Files|*.py"
+
+            if (-not $scriptPath) {
+                Write-Log "No file selected" -Level WARN
+                return
             }
+
+            # Validate the file operation
+            $validation = Test-FileOperation -Operation "Read" -SourcePath $scriptPath
+            if (-not $validation.IsValid) {
+                foreach ($err in $validation.Errors) {
+                    Write-Log $err -Level ERROR
+                }
+                return
+            }
+            foreach ($warn in $validation.Warnings) {
+                Write-Log $warn -Level WARN
+            }
+
+            # Show file preview
+            Write-Host ""
+            Show-FilePreview -FilePath $scriptPath -MaxLines 30
+            Write-Host ""
+
+            # Ask for arguments
+            Write-Host "  Enter arguments (or press Enter for none):" -ForegroundColor Yellow
+            $args = Read-Host "  Arguments"
+            $argArray = if ($args) { $args -split " " } else { @() }
+
+            # Invoke the Python script
+            Invoke-PythonScript -ScriptPath $scriptPath -Arguments $argArray
         }
         "2" {
             Write-Host ""

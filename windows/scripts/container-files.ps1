@@ -18,6 +18,7 @@ param(
 
 # Source common functions
 . (Join-Path $PSScriptRoot "common.ps1")
+. (Join-Path $PSScriptRoot "file-browser.ps1")
 
 # ============================================
 # File Copy Functions
@@ -114,7 +115,7 @@ function Copy-FromContainer {
 function Show-CopyMenu {
     <#
     .SYNOPSIS
-        Interactive menu for file copy operations
+        Interactive menu for file copy operations with file browser support
     #>
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Cyan
@@ -147,63 +148,91 @@ function Show-CopyMenu {
         return
     }
 
-    Write-Host ""
     if ($direction -eq "1") {
-        # Copy TO container
-        $sourcePath = Read-Host "  Enter local file path"
-        $sourcePath = $sourcePath.Trim('"', "'")
+        # Copy TO container - use interactive file browser
+        $sourcePath = Select-HostFile -Title "Select file to copy to container"
 
-        if (-not (Test-Path $sourcePath)) {
-            Write-Log "File not found: $sourcePath" -Level ERROR
+        if (-not $sourcePath) {
+            Write-Log "No file selected" -Level WARN
+            return
+        }
+
+        # Validate the file
+        $validation = Test-FileOperation -Operation "Copy" -SourcePath $sourcePath
+        if (-not $validation.IsValid) {
+            foreach ($err in $validation.Errors) {
+                Write-Log $err -Level ERROR
+            }
+            return
+        }
+        foreach ($warn in $validation.Warnings) {
+            Write-Log $warn -Level WARN
+        }
+
+        # Show file preview
+        Show-FilePreview -FilePath $sourcePath -MaxLines 10
+
+        # Select destination in container
+        Write-Host ""
+        $destPath = Select-ContainerPath -ContainerName $container
+
+        if (-not $destPath) {
+            Write-Log "No destination selected" -Level WARN
             return
         }
 
         Write-Host ""
-        Write-Host "  Common container paths:" -ForegroundColor DarkGray
-        Write-Host "    Backend: /app/, /app/hms/, /tmp/" -ForegroundColor DarkGray
-        Write-Host "    PostgreSQL: /tmp/, /var/lib/postgresql/" -ForegroundColor DarkGray
-        Write-Host "    Frontend: /app/, /tmp/" -ForegroundColor DarkGray
+        Write-Host "  Summary:" -ForegroundColor Yellow
+        Write-Host "    Source: $sourcePath" -ForegroundColor DarkGray
+        Write-Host "    Destination: ${container}:${destPath}" -ForegroundColor DarkGray
         Write-Host ""
+        $confirm = Read-Host "  Proceed with copy? (y/n)"
+        if ($confirm -eq 'y') {
+            Copy-ToContainer -ContainerName $container -SourcePath $sourcePath -DestinationPath $destPath
 
-        $destPath = Read-Host "  Enter destination path in container"
-
-        if ($destPath) {
+            # Ask about restart
             Write-Host ""
-            $confirm = Read-Host "  Copy '$sourcePath' to '${container}:${destPath}'? (y/n)"
-            if ($confirm -eq 'y') {
-                Copy-ToContainer -ContainerName $container -SourcePath $sourcePath -DestinationPath $destPath
-
-                # Ask about restart
-                Write-Host ""
-                $restart = Read-Host "  Restart the container to apply changes? (y/n)"
-                if ($restart -eq 'y') {
-                    $serviceName = Get-ServiceNameFromContainer -ContainerName $container
-                    if ($serviceName) {
-                        $projectRoot = Get-ProjectRoot
-                        Push-Location $projectRoot
-                        docker-compose restart $serviceName
-                        Pop-Location
-                        Write-Log "Container restarted" -Level SUCCESS
-                    }
+            $restart = Read-Host "  Restart the container to apply changes? (y/n)"
+            if ($restart -eq 'y') {
+                $serviceName = Get-ServiceNameFromContainer -ContainerName $container
+                if ($serviceName) {
+                    $projectRoot = Get-ProjectRoot
+                    Push-Location $projectRoot
+                    docker-compose restart $serviceName
+                    Pop-Location
+                    Write-Log "Container restarted" -Level SUCCESS
                 }
             }
         }
     } else {
-        # Copy FROM container
+        # Copy FROM container - use interactive container browser
+        $sourcePath = Select-ContainerFile -ContainerName $container
+
+        if (-not $sourcePath) {
+            Write-Log "No file selected" -Level WARN
+            return
+        }
+
+        # Show file preview
+        Show-FilePreview -ContainerName $container -FilePath $sourcePath -MaxLines 10
+
+        # Select destination on host
         Write-Host ""
-        Write-Host "  Enter source path in container:" -ForegroundColor Yellow
-        $sourcePath = Read-Host "  Container path"
+        $destPath = Select-HostFolder -Title "Select destination folder"
+
+        if (-not $destPath) {
+            Write-Log "No destination selected" -Level WARN
+            return
+        }
 
         Write-Host ""
-        $destPath = Read-Host "  Enter local destination path"
-        $destPath = $destPath.Trim('"', "'")
-
-        if ($sourcePath -and $destPath) {
-            Write-Host ""
-            $confirm = Read-Host "  Copy '${container}:${sourcePath}' to '$destPath'? (y/n)"
-            if ($confirm -eq 'y') {
-                Copy-FromContainer -ContainerName $container -SourcePath $sourcePath -DestinationPath $destPath
-            }
+        Write-Host "  Summary:" -ForegroundColor Yellow
+        Write-Host "    Source: ${container}:${sourcePath}" -ForegroundColor DarkGray
+        Write-Host "    Destination: $destPath" -ForegroundColor DarkGray
+        Write-Host ""
+        $confirm = Read-Host "  Proceed with copy? (y/n)"
+        if ($confirm -eq 'y') {
+            Copy-FromContainer -ContainerName $container -SourcePath $sourcePath -DestinationPath $destPath
         }
     }
 }
@@ -255,7 +284,7 @@ function Remove-ContainerFile {
 function Show-DeleteMenu {
     <#
     .SYNOPSIS
-        Interactive menu for file delete operations
+        Interactive menu for file delete operations with file browser support
     #>
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Cyan
@@ -270,13 +299,22 @@ function Show-DeleteMenu {
         return
     }
 
-    Write-Host ""
-    $filePath = Read-Host "  Enter file/directory path to delete"
+    # Use interactive browser to select file
+    $filePath = Select-ContainerFile -ContainerName $container
 
     if (-not $filePath) {
-        Write-Log "No path specified" -Level WARN
+        Write-Log "No file selected" -Level WARN
         return
     }
+
+    # Validate operation
+    $validation = Test-FileOperation -Operation "Delete" -SourcePath $filePath -ContainerName $container
+    foreach ($warn in $validation.Warnings) {
+        Write-Log $warn -Level WARN
+    }
+
+    # Show file preview
+    Show-FilePreview -ContainerName $container -FilePath $filePath -MaxLines 10
 
     Write-Host ""
     $recursive = Read-Host "  Delete recursively (for directories)? (y/n)"
@@ -410,7 +448,7 @@ function Edit-ContainerFile {
 function Show-EditMenu {
     <#
     .SYNOPSIS
-        Interactive menu for file edit operations
+        Interactive menu for file edit operations with file browser support
     #>
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Cyan
@@ -430,33 +468,23 @@ function Show-EditMenu {
         return
     }
 
-    Write-Host ""
-    Write-Host "  Common editable files:" -ForegroundColor DarkGray
+    # Use interactive browser to select file
+    $filePath = Select-ContainerFile -ContainerName $container
 
-    $containers = Get-HmsContainerNames
-    switch ($container) {
-        $containers.Backend {
-            Write-Host "    /app/.env" -ForegroundColor DarkGray
-            Write-Host "    /app/hms/shared/config.py" -ForegroundColor DarkGray
-            Write-Host "    /app/alembic.ini" -ForegroundColor DarkGray
-        }
-        $containers.Postgres {
-            Write-Host "    /var/lib/postgresql/data/pgdata/postgresql.conf" -ForegroundColor DarkGray
-            Write-Host "    /var/lib/postgresql/data/pgdata/pg_hba.conf" -ForegroundColor DarkGray
-        }
-        $containers.Frontend {
-            Write-Host "    /app/.env" -ForegroundColor DarkGray
-            Write-Host "    /app/next.config.js" -ForegroundColor DarkGray
-        }
+    if (-not $filePath) {
+        Write-Log "No file selected" -Level WARN
+        return
     }
+
+    # Show file preview before editing
+    Show-FilePreview -ContainerName $container -FilePath $filePath -MaxLines 15
+
     Write-Host ""
-
-    $filePath = Read-Host "  Enter file path in container"
-
-    if ($filePath) {
+    $confirm = Read-Host "  Edit this file? (y/n)"
+    if ($confirm -eq 'y') {
         Edit-ContainerFile -ContainerName $container -FilePath $filePath
     } else {
-        Write-Log "No file path specified" -Level WARN
+        Write-Log "Operation cancelled" -Level WARN
     }
 }
 
@@ -496,7 +524,7 @@ function Get-ContainerFileListing {
 function Show-BrowseMenu {
     <#
     .SYNOPSIS
-        Interactive menu for browsing container files
+        Interactive menu for browsing container files using enhanced browser
     #>
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Cyan
@@ -511,64 +539,51 @@ function Show-BrowseMenu {
         return
     }
 
-    $currentPath = "/"
     $containers = Get-HmsContainerNames
 
     # Set default starting path based on container
+    $startPath = "/"
     switch ($container) {
-        $containers.Backend { $currentPath = "/app" }
-        $containers.Postgres { $currentPath = "/var/lib/postgresql/data" }
-        $containers.Frontend { $currentPath = "/app" }
+        $containers.Backend { $startPath = "/app" }
+        $containers.Postgres { $startPath = "/var/lib/postgresql/data" }
+        $containers.Frontend { $startPath = "/app" }
     }
 
-    do {
-        Write-Host ""
-        Write-Host "  Current path: $currentPath" -ForegroundColor Yellow
-        Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+    # Use the enhanced browser (browse mode, no file selection needed)
+    $selectedFile = Show-ContainerFileBrowserEnhanced -ContainerName $container -StartPath $startPath -SelectMode "File"
 
-        $listing = Get-ContainerFileListing -ContainerName $container -Path $currentPath
-        if ($listing) {
-            $listing | ForEach-Object { Write-Host "  $_" }
-        }
-
-        Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+    if ($selectedFile) {
         Write-Host ""
-        Write-Host "  Commands:" -ForegroundColor Yellow
-        Write-Host "    cd <path>  - Change directory"
-        Write-Host "    cat <file> - View file contents"
-        Write-Host "    ..         - Go up one directory"
-        Write-Host "    q          - Quit browser"
+        Write-Host "  Selected: $selectedFile" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  What would you like to do?" -ForegroundColor Yellow
+        Write-Host "  [1] View full file contents"
+        Write-Host "  [2] Edit this file"
+        Write-Host "  [3] Copy to host"
+        Write-Host "  [0] Nothing (close)"
         Write-Host ""
 
-        $cmd = Read-Host "  Enter command"
+        $action = Read-Host "  Enter choice"
 
-        if ($cmd -eq "q" -or $cmd -eq "quit" -or $cmd -eq "exit") {
-            break
-        } elseif ($cmd -eq "..") {
-            $currentPath = Split-Path $currentPath -Parent
-            if (-not $currentPath) { $currentPath = "/" }
-        } elseif ($cmd -match "^cd\s+(.+)$") {
-            $newPath = $Matches[1].Trim()
-            if ($newPath.StartsWith("/")) {
-                $currentPath = $newPath
-            } else {
-                $currentPath = "$currentPath/$newPath" -replace "//", "/"
+        switch ($action) {
+            "1" {
+                Write-Host ""
+                Write-Host "  File contents:" -ForegroundColor Yellow
+                Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+                docker exec $container sh -c "cat '$selectedFile' 2>&1"
+                Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
             }
-        } elseif ($cmd -match "^cat\s+(.+)$") {
-            $fileName = $Matches[1].Trim()
-            $filePath = if ($fileName.StartsWith("/")) { $fileName } else { "$currentPath/$fileName" -replace "//", "/" }
-            Write-Host ""
-            Write-Host "  Contents of $filePath :" -ForegroundColor Yellow
-            Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
-            docker exec $container sh -c "cat '$filePath' 2>&1 | head -100"
-            Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
-            Write-Host ""
-            Write-Host "  Press any key to continue..." -ForegroundColor DarkGray
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        } elseif ($cmd) {
-            Write-Host "  Unknown command: $cmd" -ForegroundColor Red
+            "2" {
+                Edit-ContainerFile -ContainerName $container -FilePath $selectedFile
+            }
+            "3" {
+                $destPath = Select-HostFolder -Title "Select destination folder"
+                if ($destPath) {
+                    Copy-FromContainer -ContainerName $container -SourcePath $selectedFile -DestinationPath $destPath
+                }
+            }
         }
-    } while ($true)
+    }
 }
 
 # ============================================
