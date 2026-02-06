@@ -217,6 +217,7 @@ function Get-HmsContainerNames {
         Postgres = Get-EnvValue -Key "POSTGRES_CONTAINER_NAME" -Default "hms-postgres"
         Backend  = Get-EnvValue -Key "BACKEND_CONTAINER_NAME" -Default "hms-backend"
         Frontend = Get-EnvValue -Key "FRONTEND_CONTAINER_NAME" -Default "hospital-ui"
+        TvLegacy = Get-EnvValue -Key "TV_LEGACY_CONTAINER_NAME" -Default "tv-legacy-display"
     }
 }
 
@@ -558,8 +559,9 @@ function Select-Container {
     Write-Host "  [1] $($containers.Postgres) (PostgreSQL)"
     Write-Host "  [2] $($containers.Backend) (Backend/FastAPI)"
     Write-Host "  [3] $($containers.Frontend) (Frontend/Next.js)"
+    Write-Host "  [4] $($containers.TvLegacy) (TV Legacy Display)"
     if ($IncludeAll) {
-        Write-Host "  [4] All containers"
+        Write-Host "  [5] All containers"
     }
     Write-Host "  [0] Cancel"
     Write-Host ""
@@ -570,7 +572,8 @@ function Select-Container {
         "1" { return $containers.Postgres }
         "2" { return $containers.Backend }
         "3" { return $containers.Frontend }
-        "4" { if ($IncludeAll) { return "all" } }
+        "4" { return $containers.TvLegacy }
+        "5" { if ($IncludeAll) { return "all" } }
         "0" { return $null }
         default { return $null }
     }
@@ -592,6 +595,7 @@ function Get-ServiceNameFromContainer {
         $containers.Postgres { return "db" }
         $containers.Backend { return "hms-backend" }
         $containers.Frontend { return "hospital-ui" }
+        $containers.TvLegacy { return "tv-legacy" }
         default { return $null }
     }
 }

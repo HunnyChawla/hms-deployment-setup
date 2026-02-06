@@ -107,6 +107,14 @@ try {
         Write-Host " $frontendStatus" -ForegroundColor Yellow
     }
 
+    Write-Host "  Checking $($containers.TvLegacy)..." -NoNewline
+    $tvLegacyStatus = Get-ContainerStatus -ContainerName $containers.TvLegacy
+    if ($tvLegacyStatus -eq "running") {
+        Write-Host " running" -ForegroundColor Green
+    } else {
+        Write-Host " $tvLegacyStatus" -ForegroundColor Yellow
+    }
+
     # Final status
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Green
@@ -121,9 +129,11 @@ try {
     Write-Host "  Access Points:" -ForegroundColor Cyan
     $frontendPort = Get-EnvValue -Key "FRONTEND_PORT" -Default "80"
     $backendPort = Get-EnvValue -Key "APP_PORT" -Default "8000"
-    Write-Host "    Frontend:  http://localhost:$frontendPort"
-    Write-Host "    Backend:   http://localhost:$backendPort"
-    Write-Host "    API Docs:  http://localhost:$backendPort/docs"
+    $tvLegacyPort = Get-EnvValue -Key "TV_LEGACY_PORT" -Default "5500"
+    Write-Host "    Frontend:   http://localhost:$frontendPort"
+    Write-Host "    Backend:    http://localhost:$backendPort"
+    Write-Host "    API Docs:   http://localhost:$backendPort/docs"
+    Write-Host "    TV Display: http://localhost:$tvLegacyPort"
     Write-Host ""
 
 } finally {

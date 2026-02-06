@@ -280,7 +280,7 @@ function Show-Status {
 
     # Get container names
     $containers = Get-HmsContainerNames
-    $containerList = @($containers.Postgres, $containers.Backend, $containers.Frontend)
+    $containerList = @($containers.Postgres, $containers.Backend, $containers.Frontend, $containers.TvLegacy)
 
     Write-Host ""
     Write-Host "  Container Health Status:" -ForegroundColor Yellow
@@ -323,8 +323,9 @@ function Show-Status {
     Write-Host "  [1] View logs - hms-postgres"
     Write-Host "  [2] View logs - hms-backend"
     Write-Host "  [3] View logs - hospital-ui"
-    Write-Host "  [4] View ALL logs (live, Ctrl+C to stop)"
-    Write-Host "  [5] Save logs to file"
+    Write-Host "  [4] View logs - tv-legacy-display"
+    Write-Host "  [5] View ALL logs (live, Ctrl+C to stop)"
+    Write-Host "  [6] Save logs to file"
     Write-Host "  [0] Back to main menu"
     Write-Host ""
 
@@ -344,13 +345,17 @@ function Show-Status {
             Pause-ForUser
         }
         "4" {
+            Show-ContainerLogs -ContainerName $containers.TvLegacy -TailLines 100
+            Pause-ForUser
+        }
+        "5" {
             Push-Location $script:ProjectRoot
             Write-Host ""
             Write-Host "  Showing live logs (Ctrl+C to stop)..." -ForegroundColor Yellow
             docker-compose logs -f --tail=50
             Pop-Location
         }
-        "5" {
+        "6" {
             Write-Host ""
             foreach ($containerName in $containerList) {
                 $logFile = Show-ContainerLogs -ContainerName $containerName -TailLines 500 -SaveToFile
