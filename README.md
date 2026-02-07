@@ -7,8 +7,9 @@ Production-ready Docker deployment setup for the Hospital Management System (HMS
 | Service | Container | Port | Description |
 |---------|-----------|------|-------------|
 | PostgreSQL | hms-postgres | 5444 | Database |
-| HMS Backend | hms-backend | 8000 | FastAPI API |
-| Hospital UI | hospital-ui | 80 | Next.js Frontend |
+| HMS Backend | hms-backend | 8155 | FastAPI API |
+| Hospital UI | hospital-ui | 8154 | Next.js Frontend |
+| TV Legacy Display | tv-legacy-display | 8156 | Legacy TV Frontend |
 
 ## Platform-Specific Setup
 
@@ -34,8 +35,9 @@ Coming soon - see `linux/` folder.
 
 After deployment:
 - **Frontend**: http://localhost
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
+- **Backend API**: http://localhost:8155
+- **API Documentation**: http://localhost:8155/docs
+- **TV Legacy Display**: http://localhost:8156
 
 ## Directory Structure
 

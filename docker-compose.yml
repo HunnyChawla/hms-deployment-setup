@@ -86,6 +86,26 @@ services:
       - hms-network
     restart: unless-stopped
 
+  # TV Legacy Display (Simple HTML/JS for old TVs)
+  tv-legacy:
+    image: technesian/${TV_LEGACY_CONTAINER_NAME:-tv-legacy-display}:${TV_LEGACY_IMAGE_TAG:-latest}
+    pull_policy: always
+    build:
+      context: ../hospital-ui/tv-legacy
+      dockerfile: Dockerfile
+    container_name: ${TV_LEGACY_CONTAINER_NAME:-tv-legacy-display}
+    environment:
+      API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      PORT: 5500
+    ports:
+      - "${TV_LEGACY_PORT:-8156}:5500"
+    depends_on:
+      hms-backend:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: unless-stopped
+
 networks:
   hms-network:
     driver: bridge
