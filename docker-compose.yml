@@ -23,6 +23,25 @@ services:
       - hms-network
     restart: unless-stopped
 
+  # Redis — caches the ABDM gateway session token for abdm-lib.
+  #
+  # Required by any ABHA/ABDM flow. NOT used by the background job queue, which
+  # is a Postgres outbox, so Redis being down does not stop background work.
+  redis:
+    image: redis:${REDIS_VERSION:-7-alpine}
+    container_name: ${REDIS_CONTAINER_NAME:-hms-redis}
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hms-network
+    restart: unless-stopped
+
   # HMS Platform Backend (FastAPI)
   hms-backend:
     image: technesian/${BACKEND_CONTAINER_NAME:-hms-platform-backend}:${BACKEND_IMAGE_TAG:-latest}
@@ -43,6 +62,7 @@ services:
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-5}
       FRONTEND_URL: ${FRONTEND_URL}
       BACKEND_URL: ${BACKEND_URL}
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "${APP_PORT:-8153}:8000"
     volumes:
@@ -51,12 +71,54 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - hms-network
+    restart: unless-stopped
+
+  # Background job worker.
+  #
+  # SAME published image as hms-backend, different entry command — a separate
+  # container, not a separate service. No extra build and no separate CI: it is
+  # the same artifact running the queue drainer instead of uvicorn.
+  #
+  # Runs no migrations (hms-backend's entrypoint owns those) and exposes no
+  # ports. The API does not depend on it being up: jobs accumulate as PENDING
+  # and drain when it returns.
+  hms-worker:
+    image: technesian/${BACKEND_CONTAINER_NAME:-hms-platform-backend}:${BACKEND_IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: ${WORKER_CONTAINER_NAME:-hms-worker}
+    command: [ "python", "-m", "hms.jobs.worker" ]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hms_db}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars-please}
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LICENSE_ENCRYPTION_KEY: ${LICENSE_ENCRYPTION_KEY:-CHANGE_THIS_GENERATE_STRONG_ENCRYPTION_KEY_MIN_32_CHARS}
+      UPLOAD_DIR: /app/uploads
+      REDIS_URL: redis://redis:6379/0
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-2.0}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-10}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      WORKER_STALE_LOCK_SECONDS: ${WORKER_STALE_LOCK_SECONDS:-300}
+    volumes:
+      # MUST be the same bind paths as hms-backend. From Phase 2 the worker
+      # renders documents the API serves, so they have to share a filesystem.
+      - ./data/uploads:/app/uploads
+      - ./data/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - hms-network
     restart: unless-stopped
@@ -112,4 +174,6 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local
