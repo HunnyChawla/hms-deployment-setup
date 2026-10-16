@@ -23,6 +23,22 @@ services:
       - hms-network
     restart: unless-stopped
 
+  # Redis (ABDM Gateway Session Token Cache)
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_CONTAINER_NAME:-hms-redis}
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hms-network
+    restart: unless-stopped
+
   # HMS Platform Backend (FastAPI)
   hms-backend:
     image: technesian/${BACKEND_CONTAINER_NAME:-hms-platform-backend}:${BACKEND_IMAGE_TAG:-latest}
@@ -37,12 +53,55 @@ services:
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       APP_ENV: ${APP_ENV:-production}
+      DOCS_ENABLED: ${DOCS_ENABLED:-false}
+      DOCS_USERNAME: ${DOCS_USERNAME:-}
+      DOCS_PASSWORD: ${DOCS_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
       LICENSE_ENCRYPTION_KEY: ${LICENSE_ENCRYPTION_KEY:-CHANGE_THIS_GENERATE_STRONG_ENCRYPTION_KEY_MIN_32_CHARS}
+      AADHAAR_ENCRYPTION_KEY: ${AADHAAR_ENCRYPTION_KEY:-}
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-5}
       FRONTEND_URL: ${FRONTEND_URL}
       BACKEND_URL: ${BACKEND_URL}
+      REDIS_URL: redis://redis:6379/0
+
+      # ABDM / ABHA Integration
+      ABDM_BASE_URL: ${ABDM_BASE_URL:-https://abhasbx.abdm.gov.in}
+      ABDM_CLIENT_ID: ${ABDM_CLIENT_ID:-}
+      ABDM_CLIENT_SECRET: ${ABDM_CLIENT_SECRET:-}
+      ABDM_X_CM_ID: ${ABDM_X_CM_ID:-sbx}
+      ABDM_HIP_ID: ${ABDM_HIP_ID:-IN0610090730}
+      ABDM_PHR_BASE_URL: ${ABDM_PHR_BASE_URL:-https://phrsbx.abdm.gov.in}
+      ABDM_HIECM_BASE_URL: ${ABDM_HIECM_BASE_URL:-https://abhasbx.abdm.gov.in}
+      ABDM_BRIDGE_URL: ${ABDM_BRIDGE_URL:-}
+      ABDM_BRIDGE_API_KEY: ${ABDM_BRIDGE_API_KEY:-}
+      ABDM_BRIDGE_CALLBACK_URL: ${ABDM_BRIDGE_CALLBACK_URL:-}
+      ABDM_CALLBACK_BASE_URL: ${ABDM_CALLBACK_BASE_URL:-}
+      ABDM_CALLBACKS_ENABLED: ${ABDM_CALLBACKS_ENABLED:-false}
+      ABDM_CALLBACK_ISSUER: ${ABDM_CALLBACK_ISSUER:-https://dev.abdm.gov.in/auth/realms/central-registry}
+      ABDM_JWKS_URI: ${ABDM_JWKS_URI:-}
+      ABDM_CALLBACK_IP_ALLOW_LIST: ${ABDM_CALLBACK_IP_ALLOW_LIST:-}
+
+      # Messaging, Intake & Patient Matching
+      INTAKE_TOKEN_EXPIRY_MINUTES: ${INTAKE_TOKEN_EXPIRY_MINUTES:-120}
+      MATCH_AGE_TOLERANCE_YEARS: ${MATCH_AGE_TOLERANCE_YEARS:-2}
+      MATCH_NAME_PHONETIC_THRESHOLD: ${MATCH_NAME_PHONETIC_THRESHOLD:-0.85}
+      SMS_PROVIDER: ${SMS_PROVIDER:-logging}
+      SMS_INLINE_TIMEOUT_SECONDS: ${SMS_INLINE_TIMEOUT_SECONDS:-5.0}
+      OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      OTP_THROTTLE_PER_HOUR: ${OTP_THROTTLE_PER_HOUR:-5}
+
+      # OpenTelemetry & Grafana Cloud Observability
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-hms-backend}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-otlp}
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production,service.namespace=hms}
     ports:
       - "${APP_PORT:-8153}:8000"
     volumes:
@@ -50,6 +109,8 @@ services:
       - ./data/logs:/app/logs
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
@@ -108,8 +169,11 @@ services:
 
 networks:
   hms-network:
+    name: hms-network
     driver: bridge
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local
