@@ -49,8 +49,12 @@ services:
     container_name: ${BACKEND_CONTAINER_NAME:-hms-platform-backend}
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hms_db}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production-min-32-chars-please}
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       APP_ENV: ${APP_ENV:-production}
       DOCS_ENABLED: ${DOCS_ENABLED:-false}
@@ -163,6 +167,40 @@ services:
     depends_on:
       hms-backend:
         condition: service_healthy
+    networks:
+      - hms-network
+    restart: unless-stopped
+
+  # Cura E2E Test Runner & Observability Dashboard
+  hms-e2e-runner:
+    image: technesian/${E2E_CONTAINER_NAME:-hms-e2e-runner}:${E2E_IMAGE_TAG:-latest}
+    build:
+      context: ../e2e-tests
+      dockerfile: Dockerfile
+    container_name: ${E2E_CONTAINER_NAME:-hms-e2e-runner}
+    environment:
+      BASE_URL: ${E2E_BASE_URL:-http://hospital-ui:80}
+      API_URL: ${E2E_API_URL:-http://hms-backend:8000}
+      HOSPITAL_ID: ${E2E_HOSPITAL_ID:-demo-hospital}
+      ADMIN_EMAIL: ${E2E_ADMIN_EMAIL:-admin@demo.com}
+      ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:-admin123}
+      PORT: ${E2E_PORT:-8158}
+      PLAYWRIGHT_UI_PORT: ${E2E_PLAYWRIGHT_UI_PORT:-8159}
+      BASE_PATH: ${E2E_BASE_PATH:-}
+      EMERGENCY_ADMIN_PASS: ${EMERGENCY_ADMIN_PASS:-admin123}
+      CI: "1"
+    ports:
+      - "${E2E_PORT:-8158}:8158"
+      - "${E2E_PLAYWRIGHT_UI_PORT:-8159}:8159"
+    volumes:
+      - ../e2e-tests/tests:/app/tests
+      - ../e2e-tests/src:/app/src
+      - ../e2e-tests/playwright-report:/app/playwright-report
+      - ../e2e-tests/test-results:/app/test-results
+      - ../e2e-tests/run-history:/app/run-history
+    depends_on:
+      - hospital-ui
+      - hms-backend
     networks:
       - hms-network
     restart: unless-stopped
